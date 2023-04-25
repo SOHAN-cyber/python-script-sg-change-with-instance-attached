@@ -3,8 +3,8 @@ import boto3
 ec2 = boto3.client('ec2')
 
 # Replace the below values with your own
-instance_id = 'i-0e6b4b63b9aedc15a'
-security_groups_to_copy = ['sg-04e2c84c8e0cf2873']
+instance_id = 'i-0bf3e26e2cfd5bb45'
+security_groups_to_copy = ['sg-075da073074101c1f']
 
 # Get the instance name
 instance = ec2.describe_instances(InstanceIds=[instance_id])
@@ -21,12 +21,19 @@ for sg_id in security_groups_to_copy:
     sg = ec2.describe_security_groups(GroupIds=[sg_id])
     sg_name = sg['SecurityGroups'][0]['GroupName']
     new_sg_name = instance_name + '-SG'
-    ec2.create_tags(Resources=[new_sg['GroupId']], Tags=[{'Key': 'Name', 'Value': new_sg_name}])
     new_sg = ec2.create_security_group(GroupName=new_sg_name, Description=new_sg_name, VpcId=sg['SecurityGroups'][0]['VpcId'])
+    ec2.create_tags(Resources=[new_sg['GroupId']], Tags=[{'Key': 'Name', 'Value': new_sg_name}])
     ingress = sg['SecurityGroups'][0]['IpPermissions']
     egress = sg['SecurityGroups'][0]['IpPermissionsEgress']
     ec2.authorize_security_group_ingress(GroupId=new_sg['GroupId'], IpPermissions=ingress)
-    ec2.authorize_security_group_egress(GroupId=new_sg['GroupId'], IpPermissions=egress)
+    for rule in egress:
+        try:
+            ec2.authorize_security_group_egress(GroupId=new_sg['GroupId'], IpPermissions=[rule])
+        except ec2.exceptions.ClientError as e:
+            if e.response['Error']['Code'] == 'InvalidPermission.Duplicate':
+                pass  # ignore duplicate rule
+            else:
+                raise e
     ec2.modify_instance_attribute(InstanceId=instance_id, Groups=[new_sg['GroupId']])
     new_sg_ids.append(new_sg['GroupId'])
 print(f"Instance VpcId: {instance_vpc_id}")
